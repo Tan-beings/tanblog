@@ -1,0 +1,124 @@
+<h1 id="SpringBoot应用中配置拦截器的两种方式"><a href="#SpringBoot应用中配置拦截器的两种方式" class="headerlink" title="SpringBoot应用中配置拦截器的两种方式"></a>SpringBoot应用中配置拦截器的两种方式</h1><h2 id="1-使用Spring-Bean添加Servlet、Filter或Servlet"><a href="#1-使用Spring-Bean添加Servlet、Filter或Servlet" class="headerlink" title="1.使用Spring Bean添加Servlet、Filter或Servlet"></a>1.使用Spring Bean添加Servlet、Filter或Servlet</h2><blockquote>
+<p>摘自SpringBoot文档: <a href="https://docs.spring.io/spring-boot/docs/3.1.0/reference/htmlsingle/#howto.webserver.add-servlet-filter-listener.spring-bean">关于注册过滤器监听器</a></p>
+<p>To add a <code>Servlet</code>, <code>Filter</code>, or servlet <code>*Listener</code> by using a Spring bean, you must provide a <code>@Bean</code><br>definition for it.<br>Doing so can be very useful when you want to inject configuration or<br>dependencies.<br>However, you must be very careful that they do not cause eager<br>initialization of too many other beans, because they have to be<br>installed in the container very early in the application lifecycle.<br>(For example, it is not a good idea to have them depend on your <code>DataSource</code> or JPA configuration.)<br>You can work around such restrictions by initializing the beans lazily when first used instead of on initialization.</p>
+</blockquote>
+<p>只需要在自定义的Filter类上加上<code>@Component</code>注解即可</p>
+<pre><code class="java">@Component
+public class LoginFilter implements Filter {
+
+    private final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+    private final String[] whiteList = new String[]{
+            &quot;/employee/login&quot;,
+            &quot;/employee/logout&quot;,
+            &quot;/backend/page/login/login.html&quot;,
+            &quot;/front/index.html&quot;,
+            &quot;/backend/{[plugins,styles,js,api,images,page]+}/**&quot;,
+            &quot;/backend/favicon.ico&quot;,
+            &quot;/backend/index.html&quot;
+
+    };
+
+    @Override
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
+        HttpServletRequest request = (HttpServletRequest)servletRequest;
+        HttpServletResponse response = (HttpServletResponse)servletResponse;
+        HttpSession session = request.getSession();
+        String requestURI = request.getRequestURI();
+
+//        // 1. 如果请求在白名单范围内，则放行
+        if(filterURI(requestURI)){
+            filterChain.doFilter(request,response);
+            return;
+        }
+
+        // 2. 如果请求不在白名单范围内，检查登录状态，如果登录，则放行
+        if(!ObjectUtil.isEmpty(session.getAttribute(&quot;employee&quot;))){
+            System.out.println(2);
+            filterChain.doFilter(request,response);
+            return;
+        }
+
+        // 3. 返回错误
+        response.getWriter().write(JSON.toJSONString(R.error(&quot;NOTLOGIN&quot;)));
+        return;
+    }
+
+
+    private boolean filterURI(String requestURI){
+        for (String uri : whiteList) {
+            // 在白名单内
+            if(PATH_MATCHER.match(uri,requestURI)) return true;
+        }
+        // 不在白名单内
+        return false;
+    }
+
+}
+</code></pre>
+<h2 id="2-使用Spring-Bean添加Servlet、Filter或Servlet-使用FilterRegistrationBean"><a href="#2-使用Spring-Bean添加Servlet、Filter或Servlet-使用FilterRegistrationBean" class="headerlink" title="2.使用Spring Bean添加Servlet、Filter或Servlet-使用FilterRegistrationBean"></a>2.使用Spring Bean添加Servlet、Filter或Servlet-使用FilterRegistrationBean</h2><blockquote>
+<p>摘自SpringBoot文档: <a href="https://docs.spring.io/spring-boot/docs/3.1.0/reference/htmlsingle/#howto.webserver.add-servlet-filter-listener.spring-bean">关于注册过滤器监听器</a></p>
+<p>Any <code>Servlet</code>, <code>Filter</code>, or servlet <code>*Listener</code> instance that is a Spring bean is registered with the embedded container. This can be particularly convenient if you want to refer to a value from your <code>application.properties</code> during configuration.</p>
+<p>By default, if the context contains only a single Servlet, it is mapped to <code>/</code>. In the case of multiple servlet beans, the bean name is used as a path prefix. Filters map to <code>/*</code>.</p>
+<p>If convention-based mapping is not flexible enough, you can use the <code>ServletRegistrationBean</code>, <code>FilterRegistrationBean</code>, and <code>ServletListenerRegistrationBean</code> classes for complete control.</p>
+</blockquote>
+<blockquote>
+<p>摘自他人博客：</p>
+<p>通过这种方式注册时，开发者可获得对Web组件全部的控制权，<br>它们也不是Spring容器中的Bean，因此不会自动接收依赖注入。</p>
+<p>【备注】：虽然通过这种方式来注册Web组件时，它们不能自动接受Spring容器的依赖注入<br>但由于这种方式可以获得Web组件的全部控制权，因此可以现在配置类中使用依赖注入，然后将被注入的值传递给web组件，<br>因此这些Web组件同样可以获取Spring Boot应用的配置属性。</p>
+</blockquote>
+<h3 id="第一步：创建一个配置类"><a href="#第一步：创建一个配置类" class="headerlink" title="第一步：创建一个配置类"></a>第一步：创建一个配置类</h3><pre><code>@Configuration
+public class GeneralFilter {
+}
+</code></pre>
+<h3 id="第二步：使用FilterRegistrationBean来注册Filter"><a href="#第二步：使用FilterRegistrationBean来注册Filter" class="headerlink" title="第二步：使用FilterRegistrationBean来注册Filter"></a>第二步：使用FilterRegistrationBean来注册Filter</h3><p>注册Filter</p>
+<pre><code>@Configuration
+public class GeneralFilter {
+
+    /**
+     * 配置拦截器
+     * @return registration
+     */
+    @Bean
+    public FilterRegistrationBean contextFilterRegistrationBean(){
+        FilterRegistrationBean registration = new FilterRegistrationBean();
+        registration.setFilter(new LoginFilter());
+        return registration;
+    }
+}
+</code></pre>
+<p>LoginFilter</p>
+<pre><code>public class LoginFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
+        // 略
+    }
+}
+</code></pre>
+<h2 id="3-使用ClassPath注册Filter"><a href="#3-使用ClassPath注册Filter" class="headerlink" title="3. 使用ClassPath注册Filter"></a>3. 使用ClassPath注册Filter</h2><blockquote>
+<p>When using an embedded container, automatic registration of classes annotated with <code>@WebServlet</code>, <code>@WebFilter</code>, and <code>@WebListener</code> can be enabled by using <code>@ServletComponentScan</code>.</p>
+</blockquote>
+<blockquote>
+<p>这种方式很方便，只要两步：<br>（1）为Web组件添加@WebServlet、@WebFilter或@WebListener注解。<br>（2）使用@ServletComponentScan注解告诉Spring Boot去扫描、注册Web组件。<br>这些注解不属于spring，也不属于springboot，属于java web 规范的，所以默认springboot是不识别的，需要再通过@ServletComponentScan注解告诉Spring Boot去扫描、注册Web组件。</p>
+<p>通过这种方式添加的Web组件依然是Spring容器中的Bean，因此它们同样可接受依赖注入。而且用起来很方便，可以为它们指定映射地址。</p>
+<p>因此推荐使用这种方式<br>【注意：】 由于Listener的启动时机非常早，因此Listener在监听到Web应用时，没有获取依赖注入的值。</p>
+</blockquote>
+<h3 id="第一步：定义一个Filter，并加上-WebFilter注解"><a href="#第一步：定义一个Filter，并加上-WebFilter注解" class="headerlink" title="第一步：定义一个Filter，并加上@WebFilter注解"></a>第一步：定义一个Filter，并加上@WebFilter注解</h3><pre><code>@WebFilter
+public class LoginFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
+        // 略
+    }
+}
+</code></pre>
+<h3 id="第二步：在Application类上加上-ServletComponentScan注解"><a href="#第二步：在Application类上加上-ServletComponentScan注解" class="headerlink" title="第二步：在Application类上加上@ServletComponentScan注解"></a>第二步：在Application类上加上@ServletComponentScan注解</h3><pre><code>@Slf4j
+@SpringBootApplication
+@ServletComponentScan
+public class ReggieApplication {
+    public static void main(String[] args){
+        SpringApplication.run(ReggieApplication.class,args);
+        log.info(&quot;瑞吉外卖项目正在启动..&quot;);
+    }
+}
+</code></pre>
